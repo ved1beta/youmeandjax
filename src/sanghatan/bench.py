@@ -51,14 +51,30 @@ def kv_measure(P=32, N=96):
     return {"naive": nv, "kv": kv}
 
 
-def bar(ax, title, labels, vals, ylabel, fmt="{:.0f}"):
-    b = ax.bar(labels, vals, color=["#bbb", "#4c78a8"])
-    ax.set_title(title, fontsize=10)
-    ax.set_ylabel(ylabel, fontsize=8)
-    ax.tick_params(labelsize=8)
-    for r, v in zip(b, vals):
-        ax.text(r.get_x() + r.get_width() / 2, v, fmt.format(v),
-                ha="center", va="bottom", fontsize=8)
+INK, BASE, GOOD, COST = "#2b2f38", "#d6dbe5", "#10a497", "#e08a32"
+
+
+def bar(ax, title, labels, vals, ylabel, delta, good=True, fmt="{:.0f}"):
+    accent = GOOD if good else COST
+    bars = ax.bar(labels, vals, width=0.56,
+                  color=[BASE, accent], zorder=3)
+    ax.set_title(title, loc="left", fontsize=12, fontweight="bold",
+                 color=INK, pad=26)
+    # delta badge, top-left under the title
+    ax.text(0.0, 1.045, delta, transform=ax.transAxes, fontsize=12.5,
+            fontweight="bold", color=accent, ha="left", va="bottom")
+    ax.text(0.0, -0.16, ylabel, transform=ax.transAxes, fontsize=8.5,
+            color="#8a909c", ha="left", va="top")
+    ax.set_ylim(0, max(vals) * 1.30)
+    for r, v in zip(bars, vals):
+        ax.text(r.get_x() + r.get_width() / 2, v + max(vals) * 0.03,
+                fmt.format(v), ha="center", va="bottom",
+                fontsize=10.5, fontweight="bold", color=INK)
+    ax.set_yticks([])
+    ax.tick_params(length=0, labelsize=10, colors="#5b616e")
+    ax.grid(axis="y", color="#eef1f5", linewidth=1, zorder=0)
+    for s in ax.spines.values():
+        s.set_visible(False)
 
 
 if __name__ == "__main__":
@@ -69,21 +85,36 @@ if __name__ == "__main__":
     fl = flash.measure()
     ms = mesh2d.measure()
 
-    fig, ax = plt.subplots(2, 2, figsize=(9, 7))
-    bar(ax[0, 0], "Step 6: decode throughput", ["naive", "kv-cache"],
-        [kv["naive"], kv["kv"]], "tokens/sec")
-    bar(ax[0, 1], "bf16: KV-cache size", ["fp32", "bf16"],
-        [pr["fp32"]["cache_kb"], pr["bf16"]["cache_kb"]], "KB")
-    bar(ax[1, 0], "remat: backward compute", ["store", "remat"],
-        [rm["store"]["gflops"], rm["remat"]["gflops"]], "GFLOPs",
-        "{:.1f}")
-    bar(ax[1, 1], "flash vs naive: peak score tensor",
-        ["naive (T,T)", "flash (T,Bk)"], [64 * 64, 64 * 16], "elements")
-    fig.suptitle("sanghatan — stretch benchmarks (8 fake CPU devices)",
-                 fontsize=11)
-    fig.tight_layout()
+    plt.rcParams.update({
+        "font.family": "DejaVu Sans", "figure.facecolor": "white",
+        "axes.facecolor": "white", "savefig.facecolor": "white"})
+    nv, kc = kv["naive"], kv["kv"]
+    rs0, rr0 = rm["store"]["gflops"], rm["remat"]["gflops"]
+    cf, cb = pr["fp32"]["cache_kb"], pr["bf16"]["cache_kb"]
+
+    fig, ax = plt.subplots(2, 2, figsize=(10, 7.4))
+    bar(ax[0, 0], "Decode throughput", ["naive", "kv-cache"],
+        [nv, kc], "tokens / sec", f"{kc / nv:.1f}× faster")
+    bar(ax[0, 1], "KV-cache memory  ·  bf16 vs fp32", ["fp32", "bf16"],
+        [cf, cb], "kilobytes", f"−{(1 - cb / cf) * 100:.0f}%")
+    bar(ax[1, 0], "Backward compute  ·  jax.checkpoint",
+        ["store", "remat"], [rs0, rr0], "GFLOPs",
+        f"+{(rr0 / rs0 - 1) * 100:.0f}% (recompute cost)",
+        good=False, fmt="{:.1f}")
+    bar(ax[1, 1], "Attention peak score tensor",
+        ["naive (T,T)", "flash (T,Bk)"], [64 * 64, 64 * 16],
+        "elements", f"−{(1 - 1024 / 4096) * 100:.0f}%")
+
+    fig.suptitle("sanghatan  —  benchmarks", x=0.5, y=0.99,
+                 fontsize=16, fontweight="bold", color=INK)
+    fig.text(0.5, 0.945, "plain-JAX transformer  ·  8 fake CPU devices",
+             ha="center", fontsize=10, color="#8a909c")
+    fig.text(0.5, 0.012,
+             "one representative run · reproduce: python -m sanghatan.bench",
+             ha="center", fontsize=8.5, color="#a7adb8")
+    fig.tight_layout(rect=[0.015, 0.04, 0.985, 0.92], h_pad=4.5, w_pad=4)
     (ROOT / "assets").mkdir(exist_ok=True)
-    fig.savefig(ROOT / "assets" / "bench.png", dpi=120)
+    fig.savefig(ROOT / "assets" / "bench.png", dpi=150)
     print("wrote assets/bench.png")
 
     p32, pb = pr["fp32"], pr["bf16"]
